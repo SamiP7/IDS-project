@@ -4,12 +4,9 @@ import gzip
 import os
 
 DB_PATH = "airbnb_london.db"
-CSV_PATH = "listings.csv
+CSV_PATH = "listings.csv"
 
-if CSV_PATH.endswith(".gz"):
-    df = pd.read_csv(CSV_PATH, compression='gzip', low_memory=False)
-else:
-    df = pd.read_csv(CSV_PATH, low_memory=False)
+df = pd.read_csv(CSV_PATH, low_memory=False)
 
 def clean_and_prepare(df: pd.DataFrame):
     pref = [
