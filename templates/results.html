@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Recommended accommodations ({{ count }} pcs)</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th><th>Neighbourhood</th><th>Room type</th><th>Price (£)</th><th>Rating</th><th>Number of reviews</th><th>Similarity</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in results %}
+    <tr>
+      <td>{{ r.name }}</td>
+      <td>{{ r.neighbourhood_cleansed }}</td>
+      <td>{{ r.room_type }}</td>
+      <td>{{ r.price }}</td>
+      <td>{{ r.review_scores_rating }}</td>
+      <td>{{ r.number_of_reviews }}</td>
+      <td>{{ "%.3f"|format(r.similarity) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -6,7 +6,7 @@ import os
 DB_PATH = "airbnb_london.db"
 CSV_PATH = "listings.csv"
 
-df = pd.read_csv(CSV_PATH, low_memory=False)
+df = pd.read_csv(CSV_PATH)
 
 def clean_and_prepare(df: pd.DataFrame):
     pref = [
