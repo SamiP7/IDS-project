@@ -519,7 +519,7 @@ def main():
         sleep_between_requests=1.0,
     )
 
-    df_final.merge(crime_rates_by_neighourhood, left_on='neighbourhood_cleansed', right_on='BoroughName')
+    df_final = df_final.merge(crime_rates_by_neighourhood, left_on='neighbourhood_cleansed', right_on='BoroughName')
     # Normalize the weights
     total = sum(user_prefs.values())
     weights = {k: v / total for k, v in user_prefs.items()}
@@ -539,7 +539,7 @@ def main():
 )
 
     top_5 = df_final.sort_values('weighted_score', ascending=False).head(5)
-    print(top_5[["id","name","price","amenities","room_type","neighbourhood_cleansed","weighted_score","poi_liveability_score","transport_score"]]) # crime_score column will be added, scores will not be displayed
+    print(top_5[["id","name","price","amenities","room_type","neighbourhood_cleansed","weighted_score","poi_liveability_score","transport_score", 'crime_score']]) # crime_score column will be added, scores will not be displayed
                                                                                                                                                     # they are for checking the scores
     
 
