@@ -1,45 +1,62 @@
-from flask import Flask, render_template, request, g
-import sqlite3
-import numpy as np
+from flask import Flask, render_template, request
 import pandas as pd
+from recommender_v2 import (
+    convert_price_col_to_float,
+    find_top_listings_by_amenities_and_room_type,
+    convert_bus_stops_to_latlon,
+    compute_bus_proximity_scores,
+    compute_poi_liveability,
+    calc_crime_rates_by_neigbourhood
+)
 
-DB_PATH = "airbnb_london.db"
 app = Flask(__name__)
 
-CSV_PATH = "listings.csv"
-
-df = pd.read_csv(CSV_PATH)
-
-
-@app.route("/")
+@app.route('/')
 def index():
-    neighbourhoods = sorted(df["neighbourhood_cleansed"].dropna().unique())
-    room_types = sorted(df["room_type"].dropna().unique())
-    return render_template("index.html", neighbourhoods=neighbourhoods, room_types=room_types)
+    
+    df = pd.read_csv("listings.csv")
 
-@app.route("/results", methods=["POST"])
-def results():
-    user_input = {        "latitude": float(request.form.get("latitude") or 51.5072),
-        "longitude": float(request.form.get("longitude") or -0.1276),
-        "room_type": request.form.get("room_type") or "Entire home/apt",
-        "neighbourhood_cleansed": request.form.get("neighbourhood") or "Westminster",
-        "review_scores_rating": float(request.form.get("min_rating") or 80),
-        "number_of_reviews": float(request.form.get("min_reviews") or 10),
-        "price": float(request.form.get("max_price") or 150)
-    }
+    
+    room_types = sorted(df['room_type'].dropna().unique())
 
-    user_num = np.array([[user_input["latitude"], user_input["longitude"],
-                          user_input["review_scores_rating"], user_input["number_of_reviews"], user_input["price"]]])
-    user_num_scaled = scaler.transform(user_num)
+    return render_template('index.html', room_types=room_types)
 
-    user_cat = pd.DataFrame([[user_input["room_type"], user_input["neighbourhood_cleansed"]]],
-                            columns=["room_type", "neighbourhood_cleansed"])
-    user_cat_enc = encoder.transform(user_cat)
+@app.route('/recommend', methods=['POST'])
+def recommend():
+    try:
+        
+        amenities = request.form.getlist('amenities')
+        room_type = request.form.get('room_type')
 
-    user_vector = np.hstack([user_num_scaled, user_cat_enc])
-    sims = cosine_similarity(user_vector, X)[0]
-    df["similarity"] = sims
+        
+        df = pd.read_csv("listings.csv")
+        bus_stops_df = pd.read_csv("bus_stops.csv")
+        crime_df = pd.read_csv("BOROUGH.csv")
 
-    results = df.sort_values("similarity", ascending=False).head(20)
+        
+        convert_price_col_to_float(df)
+        df_filtered = find_top_listings_by_amenities_and_room_type(
+            amenities, room_type, df, top_n=200, min_reviews=5
+        )
 
-    return render_template("results.html", results=results.to_dict(orient="records"), count=len(results))
+        
+        bus_stops_df = convert_bus_stops_to_latlon(bus_stops_df)
+        df_with_transport = compute_bus_proximity_scores(df_filtered, bus_stops_df)
+        df_final = compute_poi_liveability(df_with_transport)
+
+        
+        crime_scores = calc_crime_rates_by_neigbourhood(crime_df)
+        df_final = df_final.merge(crime_scores, left_on='neighbourhood_cleansed', right_on='BoroughName')
+
+        if df_final.empty:
+            return render_template('error.html') 
+
+        top_5 = df_final.sort_values('review_scores_rating', ascending=False).head(5)
+        return render_template('results.html', results=top_5.to_dict(orient='records'))
+
+    except Exception as e:
+        return render_template('error.html', message=str(e))
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
