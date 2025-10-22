@@ -89,18 +89,18 @@ def calc_crime_rates_by_neigbourhood(crime_rates_df):
                   'City of London':15000
     } #SOURCE FOR NUMBERS: https://www.citypopulation.de/en/uk/greaterlondon/
     crime_rates_df = crime_rates_df.replace(to_replace='Unknown', value='City of London')
-    crime_rates_df['total'] = crime_rates_df.sum(axis=1, numeric_only=True)
-    crime_rates_df[['MajorText','BoroughName','total']]
+    crime_rates_df['crime_score'] = crime_rates_df.sum(axis=1, numeric_only=True)
+    crime_rates_df[['MajorText','BoroughName','crime_score']]
 
     for i in weights.keys():
-        crime_rates_df['total'] = np.where(crime_rates_df['MajorText'] == i, crime_rates_df['total']*weights[i], crime_rates_df['total'])
+        crime_rates_df['crime_score'] = np.where(crime_rates_df['MajorText'] == i, crime_rates_df['crime_score']*weights[i], crime_rates_df['crime_score'])
     for i in pop_by_borough.keys():
-        crime_rates_df['total'] = np.where(crime_rates_df['BoroughName'] == i, crime_rates_df['total']/pop_by_borough[i], crime_rates_df['total'])
+        crime_rates_df['crime_score'] = np.where(crime_rates_df['BoroughName'] == i, crime_rates_df['crime_score']/pop_by_borough[i], crime_rates_df['crime_score'])
     crime_combined = crime_rates_df.groupby(['BoroughName']).sum()
     crime_combined.sum(axis=1, numeric_only=True)
-    normalized = (crime_combined['total']-crime_combined['total'].min())/(crime_combined['total'].max()-crime_combined['total'].min())
+    normalized = (crime_combined['crime_score']-crime_combined['crime_score'].min())/(crime_combined['crime_score'].max()-crime_combined['crime_score'].min())
     
-    return normalized
+    return pd.DataFrame(normalized)
     
 def find_top_listings_by_amenities_and_room_type(required_amenities, room_type, df_source, top_n=100, min_reviews=5):
     """
@@ -519,7 +519,7 @@ def main():
         sleep_between_requests=1.0,
     )
 
-
+    df_final.merge(crime_rates_by_neighourhood, left_on='neighbourhood_cleansed', right_on='BoroughName')
     # Normalize the weights
     total = sum(user_prefs.values())
     weights = {k: v / total for k, v in user_prefs.items()}
