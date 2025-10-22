@@ -7,6 +7,7 @@ import requests
 import time
 from collections import Counter
 import ast
+from scipy.spatial import cKDTree
 
 
 # parameters
@@ -157,22 +158,6 @@ def find_top_listings_by_amenities_and_room_type(required_amenities, room_type, 
     # drop helper column before returning (but keep if you want to inspect)
     return df_sorted.head(top_n).drop(columns=["_composite_score"], errors="ignore")
 
-def filter_listings_by_neighborhood(df_listings, neighborhood_name, neighborhood_col="neighbourhood_cleansed"):
-    """
-    Filter listings DataFrame to only include rows where the neighborhood column matches the given neighborhood name.
-    
-    Parameters:
-    df_listings (pd.DataFrame): DataFrame containing listing data with a neighborhood column.
-    neighborhood_name (str): The name of the neighborhood to filter by.
-    neighborhood_col (str): The name of the column in df_listings that contains neighborhood names.
-    
-    Returns:
-    pd.DataFrame: Filtered DataFrame containing only listings in the specified neighborhood.
-    """
-    mask = df_listings[neighborhood_col].str.strip().str.lower() == neighborhood_name.strip().lower()
-    filtered_df = df_listings[mask].copy()
-    return filtered_df
-
 
 def convert_bus_stops_to_latlon(bus_stops):
     """
@@ -260,6 +245,7 @@ def compute_bus_proximity_scores(
     counts_within = np.zeros(n_listings, dtype=int)
     raw_scores = np.zeros(n_listings, dtype=float)
 
+
     # vectorized haversine that supports broadcasting (lat1 can be shape (m,1), lat2 shape (1,k))
     def haversine_matrix(lat1, lon1, lat2, lon2):
         # all inputs in degrees
@@ -317,209 +303,118 @@ def compute_bus_proximity_scores(
     
     return res
 
-# Uses the free Overpass (OpenStreetMap) API to count nearby shops/restaurants and compute a simple liveability score.
-# Adds columns to df_with_transport_scores. Be careful with large numbers of listings (Overpass rate limits) —
-# use max_listings to limit queries or rely on caching via rounding.
+def compute_bus_proximity_scores_fast(listings, bus_stops, radius_m=1000, near_threshold_m=200):
+    bus_coords = np.radians(bus_stops[["latitude", "longitude"]].to_numpy())
+    listing_coords = np.radians(listings[["latitude", "longitude"]].to_numpy())
+
+    tree = cKDTree(bus_coords)
+    dist, idx = tree.query(listing_coords, k=1)
+    nearest_bus_stop_m = dist * 6371000  # convert rad to meters
+
+        # count within radius
+    counts_within = np.array([len(tree.query_ball_point(x, radius_m / 6371000)) for x in listing_coords])
+    
+    listings["nearest_bus_stop_m"] = nearest_bus_stop_m
+    listings[f"n_bus_stops_within_{radius_m}m"] = counts_within
+    listings["transport_score"] = np.maximum(0, (radius_m - nearest_bus_stop_m) / radius_m + (counts_within / counts_within.max()))
+    bonus = (nearest_bus_stop_m < near_threshold_m).astype(int) * 0.5
+    listings["transport_score"] += bonus
+    return listings
 
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
-
-# POI categories we will count and their Overpass tag filters
-POI_CATEGORY_QUERIES = {
-    "restaurant": '["amenity"="restaurant"]',
-    "cafe": '["amenity"="cafe"]',
-    "bar": '["amenity"="bar"]',
-    "pub": '["amenity"="pub"]',
-    "fast_food": '["amenity"="fast_food"]',
-    "supermarket": '["shop"="supermarket"]',
-    "convenience": '["shop"="convenience"]',
-    "bakery": '["shop"="bakery"]',
-    # generic shops (counts all shop=* excluding the specific ones above)
-    "shop": '["shop"]',
-}
-
-def _build_overpass_query(lat, lon, radius_m=500):
+def compute_poi_liveability_fast(listings: pd.DataFrame, pois: pd.DataFrame,
+                                 radius_m: int = 500,
+                                 poi_weights: dict = None) -> pd.DataFrame:
     """
-    Build a query that fetches nodes/ways/relations for our POI filters around a point.
+    Compute a POI liveability score for each listing based on nearby POIs.
+    
+    Parameters:
+    - listings: DataFrame with 'latitude' and 'longitude'
+    - pois: DataFrame with 'lat', 'lon', 'category'
+    - radius_m: search radius in meters
+    - poi_weights: dict of {category: weight}, default provided if None
+    
+    Returns:
+    - listings DataFrame with added 'poi_liveability_score' column
     """
-    around = f'(around:{int(radius_m)},{lat},{lon})'
-    parts = []
-    for tag in POI_CATEGORY_QUERIES.values():
-        # nodes, ways and relations
-        parts.append(f'node{tag}{around};')
-        parts.append(f'way{tag}{around};')
-        parts.append(f'relation{tag}{around};')
-    # combine and request tags
-    q = "[out:json][timeout:25];(" + "".join(parts) + ");out center tags;"
-    return q
-
-
-def query_pois(lat, lon, radius_m=500, retry=3, pause=1.0):
-    """
-    Query Overpass and return a Counter of category -> count for the POI_CATEGORY_QUERIES keys.
-    Returns an empty Counter on persistent failure.
-    """
-    q = _build_overpass_query(lat, lon, radius_m)
-    for attempt in range(retry):
-        try:
-            resp = requests.post(OVERPASS_URL, data={"data": q}, timeout=60)
-            if resp.status_code == 200:
-                data = resp.json()
-                counts = Counter()
-                for el in data.get("elements", []):
-                    tags = el.get("tags") or {}
-                    # determine which categories this element contributes to
-                    for cat, tag_filter in POI_CATEGORY_QUERIES.items():
-                        # simple check: see if element matches tag for this category
-                        if cat in ("shop",):  # "shop" generic: any shop tag counts, but exclude bakery/convenience/supermarket duplicates later
-                            if "shop" in tags:
-                                counts["shop"] += 1
-                        else:
-                            # for amenities we check exact tag presence in tags
-                            if cat in ("restaurant", "cafe", "bar", "pub", "fast_food"):
-                                if tags.get("amenity") == cat:
-                                    counts[cat] += 1
-                            else:
-                                # shop subtypes
-                                if tags.get("shop") == cat:
-                                    counts[cat] += 1
-                # adjust shop generic to not double-count specific shop types:
-                # subtract bakery, convenience, supermarket from generic shop count if present
-                specific_shops = counts.get("bakery", 0) + counts.get("convenience", 0) + counts.get("supermarket", 0)
-                if counts.get("shop", 0) > specific_shops:
-                    counts["shop_generic"] = counts["shop"] - specific_shops
-                else:
-                    counts["shop_generic"] = 0
-                # ensure all keys exist
-                result = {k: int(counts.get(k, 0)) for k in ["restaurant","cafe","bar","pub","fast_food","supermarket","convenience","bakery","shop_generic"]}
-                return result
-            else:
-                time.sleep(pause)
-        except Exception:
-            time.sleep(pause)
-    # failure -> return zeros
-    return {k: 0 for k in ["restaurant","cafe","bar","pub","fast_food","supermarket","convenience","bakery","shop_generic"]}
-
-
-
-def compute_poi_liveability(
-    listings_df,
-    lat_col="latitude",
-    lon_col="longitude",
-    radius_m=500,
-    rounding_deg=0.001,
-    max_listings=None,
-    sleep_between_requests=1.0,
-):
-    """
-    For each listing compute nearby POI counts and a normalized liveability score.
-    - rounding_deg: round coordinates to this degree precision for caching (0.001 ~ 100-110m).
-    - max_listings: optional limit to number of listings to query (useful to avoid hitting API limits).
-    Returns a new DataFrame with added columns:
-      n_restaurant, n_cafe, n_bar, n_pub, n_fast_food, n_supermarket, n_convenience, n_bakery, n_shop_generic,
-      poi_liveability_raw, poi_liveability_score
-    """
-    coords = list(zip(listings_df[lat_col].values, listings_df[lon_col].values))
-    n = len(coords) if max_listings is None else min(len(coords), int(max_listings))
-
-    cache = {}
-    results = []
-    for idx in range(n):
-        lat, lon = coords[idx]
-        key = (round(float(lat)/rounding_deg)*rounding_deg, round(float(lon)/rounding_deg)*rounding_deg)
-        if key in cache:
-            counts = cache[key]
-        else:
-            counts = query_pois(lat, lon, radius_m=radius_m)
-            cache[key] = counts
-            time.sleep(sleep_between_requests)
-        results.append(counts)
-
-    # create DataFrame of counts (for the processed rows)
-    counts_df = pd.DataFrame(results)
-    # compute a raw score as weighted sum (you can tune weights)
-    weights = {
-        "restaurant": 1.0,
-        "cafe": 0.8,
-        "bar": 0.6,
-        "pub": 0.6,
-        "fast_food": 0.4,
-        "supermarket": 1.2,
-        "convenience": 0.6,
-        "bakery": 0.7,
-        "shop_generic": 0.5,
-    }
-    counts_df["poi_liveability_raw"] = sum(counts_df[col] * w for col, w in weights.items())
-    # normalize to 0..1 based on observed max in the processed subset
-    max_raw = counts_df["poi_liveability_raw"].max() if len(counts_df) > 0 else 1.0
-    if max_raw <= 0:
-        counts_df["poi_liveability_score"] = 0.0
-    else:
-        counts_df["poi_liveability_score"] = counts_df["poi_liveability_raw"] / float(max_raw)
-
-    # merge results back into a copy of the listings dataframe
-    out = listings_df.copy()
-    # set default zeros for all new columns first
-    for col in ["restaurant","cafe","bar","pub","fast_food","supermarket","convenience","bakery","shop_generic","poi_liveability_raw","poi_liveability_score"]:
-        out[col if col.startswith("n_") == False and col not in ("poi_liveability_raw","poi_liveability_score") else col] = 0.0
-
-    # assign only for processed rows
-    assign_df = counts_df.rename(columns={
-        "restaurant":"n_restaurant",
-        "cafe":"n_cafe",
-        "bar":"n_bar",
-        "pub":"n_pub",
-        "fast_food":"n_fast_food",
-        "supermarket":"n_supermarket",
-        "convenience":"n_convenience",
-        "bakery":"n_bakery",
-        "shop_generic":"n_shop_generic",
-    })
-    # ensure index alignment
-    assign_df.index = out.index[:len(assign_df)]
-    out.loc[assign_df.index, assign_df.columns] = assign_df
-
-    return out
+    if poi_weights is None:
+        poi_weights = {
+            "restaurant": 1.0,
+            "cafe": 0.8,
+            "bar": 0.6,
+            "pub": 0.6,
+            "fast_food": 0.4,
+            "supermarket": 1.2,
+            "convenience": 0.6,
+            "bakery": 0.7,
+        }
+    
+    # Convert coordinates to radians
+    listing_coords = np.radians(listings[["latitude", "longitude"]].to_numpy())
+    poi_coords = np.radians(pois[["lat", "lon"]].to_numpy())
+    poi_categories = pois["category"].to_numpy()
+    
+    earth_radius = 6371000  # meters
+    n_listings = len(listings)
+    poi_score_raw = np.zeros(n_listings)
+    
+    # Compute contribution per category
+    for cat, weight in poi_weights.items():
+        idx_cat = np.where(poi_categories == cat)[0]
+        if len(idx_cat) == 0:
+            continue
+        tree_cat = cKDTree(poi_coords[idx_cat])
+        counts = tree_cat.query_ball_point(listing_coords, r=radius_m / earth_radius)
+        for i, pts in enumerate(counts):
+            if len(pts) > 0:
+                dists = np.linalg.norm(listing_coords[i] - poi_coords[idx_cat][pts], axis=1)
+                contrib = np.sum(weight * (1 - dists / (radius_m / earth_radius)))
+                poi_score_raw[i] += contrib
+    
+    # Normalize 0..1
+    poi_score_norm = poi_score_raw / poi_score_raw.max() if poi_score_raw.max() > 0 else poi_score_raw
+    listings = listings.copy()
+    listings["poi_liveability_score"] = poi_score_norm
+    return listings   
 
 def main():
 
     df = pd.read_csv("listings.csv", usecols=[
-        "id","name","price","amenities","neighbourhood_cleansed",
+        "id","listing_url","name","price","amenities","neighbourhood_cleansed",
         "room_type","number_of_reviews","review_scores_rating","latitude","longitude"
     ])
     bus_stops_df = pd.read_csv("bus_stops.csv")
+    pois_df = pd.read_csv("london_pois.csv")  
     user_prefs = {
     'transportation': 5,  # importance scale: 1 (low) - 5 (high)
-    'crime': 3,
-    'amenities': 4, # we can delete amenities weights as we are filtering already
-    'price': 4
+    'crime': 3, 
+    'price': 4,
+    'liveability': 4
 }
     
     crime_df = pd.read_csv('BOROUGH.csv')
     crime_rates_by_neighourhood = calc_crime_rates_by_neigbourhood(crime_df)
     
     wanted_amenities = ['wifi', 'washer'] # example will be replaced by user input
-    neighborhood_name = 'greenwich' # example will be replaced by user input
     room_type = 'entire home/apt' # example will be replaced by user input
+    number_of_listings_shown = 5 # example will be replaced by user input
 
     convert_price_col_to_float(df)
     df_top_amenities = find_top_listings_by_amenities_and_room_type(wanted_amenities,room_type, df, top_n=200, min_reviews=5)
-    df_top_amenities = filter_listings_by_neighborhood(df_top_amenities, neighborhood_name) # we can delete this part if it makes crime score meaningless
   
     bus_stops_df = convert_bus_stops_to_latlon(bus_stops_df)
-    df_with_transport_scores = compute_bus_proximity_scores(
+    df_with_transport_scores = compute_bus_proximity_scores_fast(
         listings=df_top_amenities,
         bus_stops=bus_stops_df,
     )
-    df_final = compute_poi_liveability(
+    df_final = compute_poi_liveability_fast(
         df_with_transport_scores,
+        pois=pois_df,
         radius_m=500,
-        rounding_deg=0.001,
-        max_listings=200,
-        sleep_between_requests=1.0,
     )
 
     df_final = df_final.merge(crime_rates_by_neighourhood, left_on='neighbourhood_cleansed', right_on='BoroughName')
+    print(df_final.columns)
     # Normalize the weights
     total = sum(user_prefs.values())
     weights = {k: v / total for k, v in user_prefs.items()}
@@ -527,20 +422,21 @@ def main():
 
     from sklearn.preprocessing import MinMaxScaler
     scaler = MinMaxScaler()
-    features_to_scale = df_final[["poi_liveability_score","transport_score","price"]] # "crime_score" will be added
+    features_to_scale = df_final[["poi_liveability_score","transport_score","price","crime_score"]] # "crime_score" will be added
     scaled_features = scaler.fit_transform(features_to_scale)
-    df_final[["amenities_score_scaled","transportation_score_scaled","price_scaled"]] = scaled_features # crime score_scaled will be added
+    df_final[["poi_liveability_score_scaled","transportation_score_scaled","price_scaled","crime_score_scaled"]] = scaled_features
 
     df_final['weighted_score'] = (
     weights['transportation'] * df_final['transportation_score_scaled'] +
-    #weights['crime'] * (1 - df_final['crime_score_scaled']) +  # lower crime = better -- will be added
-    weights['amenities'] * df_final['amenities_score_scaled'] + # will be deleted if we dont use weights for amenities
-    weights['price'] * (1 - df_final['price_scaled'])
+    weights['crime'] * (1 - df_final['crime_score_scaled']) +  # lower crime = better -- will be added
+    weights['price'] * (1 - df_final['price_scaled'])+
+    weights['liveability'] * df_final['poi_liveability_score_scaled']
 )
 
-    top_5 = df_final.sort_values('weighted_score', ascending=False).head(5)
-    print(top_5[["id","name","price","amenities","room_type","neighbourhood_cleansed","weighted_score","poi_liveability_score","transport_score", 'crime_score']]) # crime_score column will be added, scores will not be displayed
-                                                                                                                                                    # they are for checking the scores
+    top_n = df_final.sort_values('weighted_score', ascending=False).head(number_of_listings_shown)
+
+    print(top_n[["listing_url","neighbourhood_cleansed","weighted_score","review_scores_rating"]]) 
+                                                                                                                                            
     
 
 if __name__ == "__main__":
