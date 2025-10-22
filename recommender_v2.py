@@ -38,7 +38,70 @@ def _parse_amenities(val):
     cleaned = {str(s).strip().lower() for s in items if s is not None and str(s).strip() != ""}
     return cleaned
 
+def calc_crime_rates_by_neigbourhood(crime_rates_df):
+    weights = {
+        'ARSON AND CRIMINAL DAMAGE': 0.8,
+        'BURGLARY': 0.8,
+        'DRUG OFFENCES': 0.8,
+        'FRAUD AND FORGERY': 0.6,
+        'MISCELLANEOUS CRIMES AGAINST SOCIETY': 0.4,
+        'POSSESSION OF WEAPONS': 1.0,
+        'PUBLIC ORDER OFFENCES': 0.4,
+        'ROBBERY': 0.8,
+        'SEXUAL OFFENCES': 1.0,
+        'THEFT': 0.8,
+        'VEHICLE OFFENCES': 0.4,
+        'VIOLENCE AGAINST THE PERSON': 1.2,
+        'NFIB FRAUD': 0.4
+    }
+    pop_by_borough = {'Croydon':410000,
+                  'Barnet':405000,
+                  'Ealing':386000,
+                  'Newham':375000,
+                  'Brent':353000,
+                  'Wandsworth':338000,
+                  'Bromley':335000,
+                  'Tower Hamlets':332000,
+                  'Hillingdon':330000,
+                  'Enfield':327000,
+                  'Redbridge':321000,
+                  'Lambeth':317000,
+                  'Southwark':315000,
+                  'Lewisham':301000,
+                  'Greenwich':300000,
+                  'Hounslow':300000,
+                  'Waltham Forest':280000,
+                  'Havering':276000,
+                  'Harrow':271000,
+                  'Hackney':267000,
+                  'Haringey':264000,
+                  'Bexley':256000,
+                  'Barking and Dagenham':233000,
+                  'Islington':223000,
+                  'Merton':219000,
+                  'Camden':217000,
+                  'Sutton':215000,
+                  'Westminster':210000,
+                  'Richmond upon Thames':197000,
+                  'Hammersmith and Fulham':189000,
+                  'Kingston upon Thames':173000,
+                  'Kensington and Chelsea':145000,
+                  'City of London':15000
+    } #SOURCE FOR NUMBERS: https://www.citypopulation.de/en/uk/greaterlondon/
+    crime_rates_df = crime_rates_df.replace(to_replace='Unknown', value='City of London')
+    crime_rates_df['total'] = crime_rates_df.sum(axis=1, numeric_only=True)
+    crime_rates_df[['MajorText','BoroughName','total']]
 
+    for i in weights.keys():
+        crime_rates_df['total'] = np.where(crime_rates_df['MajorText'] == i, crime_rates_df['total']*weights[i], crime_rates_df['total'])
+    for i in pop_by_borough.keys():
+        crime_rates_df['total'] = np.where(crime_rates_df['BoroughName'] == i, crime_rates_df['total']/pop_by_borough[i], crime_rates_df['total'])
+    crime_combined = crime_rates_df.groupby(['BoroughName']).sum()
+    crime_combined.sum(axis=1, numeric_only=True)
+    normalized = (crime_combined['total']-crime_combined['total'].min())/(crime_combined['total'].max()-crime_combined['total'].min())
+    
+    return normalized
+    
 def find_top_listings_by_amenities_and_room_type(required_amenities, room_type, df_source, top_n=100, min_reviews=5):
     """
     Filter listings that contain all required_amenities (case-insensitive, substring match),
@@ -431,6 +494,10 @@ def main():
     'amenities': 4, # we can delete amenities weights as we are filtering already
     'price': 4
 }
+    
+    crime_df = pd.read_csv('BOROUGH.csv')
+    crime_rates_by_neighourhood = calc_crime_rates_by_neigbourhood(crime_df)
+    
     wanted_amenities = ['wifi', 'washer'] # example will be replaced by user input
     neighborhood_name = 'greenwich' # example will be replaced by user input
     room_type = 'entire home/apt' # example will be replaced by user input
