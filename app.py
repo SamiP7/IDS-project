@@ -40,13 +40,13 @@ def recommend():
         df = pd.read_csv("listings.csv")
         bus_stops_df = pd.read_csv("bus_stops.csv")
         crime_df = pd.read_csv("BOROUGH.csv")
+        crime_df = crime_df[crime_df.BoroughName != 'London Heathrow and London City Airports']
         pois_df = pd.read_csv("london_pois.csv")
         
         convert_price_col_to_float(df)
         df_filtered = find_top_listings_by_amenities_and_room_type(
             amenities, room_type, df, top_n=200, min_reviews=5
         )
-        print(df_filtered)
 
         
         bus_stops_df = convert_bus_stops_to_latlon(bus_stops_df)
@@ -75,7 +75,6 @@ def recommend():
         )
 
         top_5 = df_final.sort_values('weighted_score', ascending=False).head(5).to_dict(orient='records') #client should be able to see the amount of results, maybe at max 20
-        
         
         print(top_5) #for debugging
         return render_template('results.html', listings=top_5)
