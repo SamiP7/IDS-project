@@ -9,7 +9,7 @@ from recommender_v2 import (
     calc_crime_rates_by_neigbourhood
 )
 from sklearn.preprocessing import MinMaxScaler
-from ast import literal_eval
+
 app = Flask(__name__)
 
 @app.route('/')
