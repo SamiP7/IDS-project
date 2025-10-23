@@ -8,6 +8,7 @@ from recommender_v2 import (
     compute_poi_liveability_fast,
     calc_crime_rates_by_neigbourhood
 )
+from sklearn.preprocessing import MinMaxScaler
 
 app = Flask(__name__)
 
@@ -27,12 +28,17 @@ def recommend():
         
         amenities = request.form.getlist('amenities')
         room_type = request.form.get('room_type')
-
+        user_prefs = { #client should be able to select these
+        'transportation': 5,  # importance scale: 1 (low) - 5 (high)
+        'crime': 3, 
+        'price': 4,
+        'liveability': 4
+        }
         
         df = pd.read_csv("listings.csv")
         bus_stops_df = pd.read_csv("bus_stops.csv")
         crime_df = pd.read_csv("BOROUGH.csv")
-
+        pois_df = pd.read_csv("london_pois.csv")
         
         convert_price_col_to_float(df)
         df_filtered = find_top_listings_by_amenities_and_room_type(
@@ -42,7 +48,7 @@ def recommend():
         
         bus_stops_df = convert_bus_stops_to_latlon(bus_stops_df)
         df_with_transport = compute_bus_proximity_scores(df_filtered, bus_stops_df)
-        df_final = compute_poi_liveability_fast(df_with_transport)
+        df_final = compute_poi_liveability_fast(df_with_transport, pois_df)
 
         
         crime_scores = calc_crime_rates_by_neigbourhood(crime_df)
@@ -50,9 +56,24 @@ def recommend():
 
         if df_final.empty:
             return render_template('error.html') 
+        
+        scaler = MinMaxScaler()
+        features_to_scale = df_final[["poi_liveability_score","transport_score","price","crime_score"]]
+        scaled_features = scaler.fit_transform(features_to_scale)
+        df_final[["poi_liveability_score_scaled","transportation_score_scaled","price_scaled","crime_score_scaled"]] = scaled_features
+        
+        total = sum(user_prefs.values())
+        weights = {k: v / total for k, v in user_prefs.items()}
+        df_final['weighted_score'] = (
+        weights['transportation'] * df_final['transportation_score_scaled'] +
+        weights['crime'] * (1 - df_final['crime_score_scaled']) +
+        weights['price'] * (1 - df_final['price_scaled'])+
+        weights['liveability'] * df_final['poi_liveability_score_scaled']
+        )
 
-        top_5 = df_final.sort_values('review_scores_rating', ascending=False).head(5)
-        return render_template('results.html', results=top_5.to_dict(orient='records'))
+        top_5 = df_final.sort_values('weighted_score', ascending=False).head(5) #client should be able to see the amount of results, maybe at max 20
+        print(top_5) #for debugging
+        return render_template('results.html', listings=top_5)
 
     except Exception as e:
         return render_template('error.html', message=str(e))
