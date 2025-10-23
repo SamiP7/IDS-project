@@ -9,7 +9,7 @@ from recommender_v2 import (
     calc_crime_rates_by_neigbourhood
 )
 from sklearn.preprocessing import MinMaxScaler
-
+from ast import literal_eval
 app = Flask(__name__)
 
 @app.route('/')
@@ -26,7 +26,9 @@ def index():
 def recommend():
     try:
         
-        amenities = request.form.getlist('amenities')
+        amenities = request.form.get('amenities')
+        amenities = amenities.strip().split(',')
+        
         room_type = request.form.get('room_type')
         user_prefs = { #client should be able to select these
         'transportation': 5,  # importance scale: 1 (low) - 5 (high)
@@ -44,6 +46,7 @@ def recommend():
         df_filtered = find_top_listings_by_amenities_and_room_type(
             amenities, room_type, df, top_n=200, min_reviews=5
         )
+        print(df_filtered)
 
         
         bus_stops_df = convert_bus_stops_to_latlon(bus_stops_df)
@@ -71,7 +74,9 @@ def recommend():
         weights['liveability'] * df_final['poi_liveability_score_scaled']
         )
 
-        top_5 = df_final.sort_values('weighted_score', ascending=False).head(5) #client should be able to see the amount of results, maybe at max 20
+        top_5 = df_final.sort_values('weighted_score', ascending=False).head(5).to_dict(orient='records') #client should be able to see the amount of results, maybe at max 20
+        
+        
         print(top_5) #for debugging
         return render_template('results.html', listings=top_5)
 
@@ -80,4 +85,3 @@ def recommend():
 
 if __name__ == "__main__":
     app.run(debug=True)
-

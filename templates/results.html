@@ -19,11 +19,17 @@
   </thead>
   <tbody>
     
-    {% for key, value in listings.items() %}
+    {% for listing in listings %}
     <tr>
-      <th scope="row">{{ key }}</th>
-      <td>{{ value }}</td>
-      
+      <td>{{ listing.name }}</td>
+      <td>{{ listing.neighbourhood_cleansed }}</td>
+      <td>{{ listing.room_type }}</td>
+      <td>{{ listing.price }}</td>
+      <td>{{ listing.review_scores_rating }}</td>
+      <td>{{ listing.number_of_reviews }}</td>
+      <td>{{ listing.crime_score|round(3) }}</td>
+      <td>{{ listing.transport_score|round(3) }}</td>
+      <td>{{ listing.poi_liveability_score|round(3) }}</td>
     </tr>
     {% endfor %}
     
@@ -31,5 +37,3 @@
 </table>
 
 {% endblock %}
-
-
