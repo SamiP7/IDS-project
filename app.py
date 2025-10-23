@@ -5,7 +5,7 @@ from recommender_v2 import (
     find_top_listings_by_amenities_and_room_type,
     convert_bus_stops_to_latlon,
     compute_bus_proximity_scores,
-    compute_poi_liveability,
+    compute_poi_liveability_fast,
     calc_crime_rates_by_neigbourhood
 )
 
@@ -42,7 +42,7 @@ def recommend():
         
         bus_stops_df = convert_bus_stops_to_latlon(bus_stops_df)
         df_with_transport = compute_bus_proximity_scores(df_filtered, bus_stops_df)
-        df_final = compute_poi_liveability(df_with_transport)
+        df_final = compute_poi_liveability_fast(df_with_transport)
 
         
         crime_scores = calc_crime_rates_by_neigbourhood(crime_df)
