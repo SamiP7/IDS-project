@@ -3,7 +3,29 @@
 {% block content %}
 <h2>Find accommodations</h2>
 <form action="/recommend" method="post" class="form">
+  <label>Importance of (crime, transportation, liveability, price), scale: 1 (low) - 5 (high):</label>
+  <select name="crime", id='amount'>
+    {% for r in crime_importances %}
+      <option value="{{ r }}">{{ r }}</option>
+    {% endfor %}
+  </select>
+  <select name="transportation", id='amount'>
+    {% for r in transportation_importances %}
+      <option value="{{ r }}">{{ r }}</option>
+    {% endfor %}
+  </select>
+  <select name="liveability", id='amount'>
+    {% for r in liveability_importances %}
+      <option value="{{ r }}">{{ r }}</option>
+    {% endfor %}
+  </select>
+  <select name="price", id='amount'>
+    {% for r in price_importances %}
+      <option value="{{ r }}">{{ r }}</option>
+    {% endfor %}
+  </select>
   
+
 
   <label>Room type:</label>
   <select name="room_type">
@@ -19,6 +41,12 @@
   <label>Maximum price (£):</label>
   <input type="number" name="max_price" value="150">
 
+  <label>Show results:</label>
+  <select name="result_amount", id='amount'>
+    {% for r in result_amounts %}
+      <option value="{{ r }}">{{ r }}</option>
+    {% endfor %}
+  </select>
 
   <button type="submit">Find accommodations</button>
 </form>

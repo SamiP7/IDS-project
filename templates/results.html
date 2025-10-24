@@ -6,7 +6,7 @@
 <table>
   <thead>
     <tr>
-      <th>Name</th>
+      <th>Name (click to book)</th>
       <th>Neighbourhood</th>
       <th>Room type</th>
       <th>Price (£)</th>
@@ -15,25 +15,27 @@
       <th>Crime score</th>
       <th>Transport score</th>
       <th>POI / Liveability score</th>
+      <th>Weighted Score</th>
     </tr>
   </thead>
   <tbody>
     
     {% for listing in listings %}
     <tr>
-      <td>{{ listing.name }}</td>
+      <td><a href= {{ listing.listing_url }}> {{ listing.name }}</a></td>
       <td>{{ listing.neighbourhood_cleansed }}</td>
       <td>{{ listing.room_type }}</td>
       <td>{{ listing.price }}</td>
       <td>{{ listing.review_scores_rating }}</td>
       <td>{{ listing.number_of_reviews }}</td>
-      <td>{{ listing.crime_score|round(3) }}</td>
-      <td>{{ listing.transport_score|round(3) }}</td>
-      <td>{{ listing.poi_liveability_score|round(3) }}</td>
+      <td>{{ listing.crime_score|round(2) }}</td>
+      <td>{{ listing.transport_score|round(2) }}</td>
+      <td>{{ listing.poi_liveability_score|round(2) }}</td>
+      <td>{{ listing.weighted_score|round(2) }}</td>
     </tr>
     {% endfor %}
     
   </tbody>
 </table>
-
+<button onclick='history.back()'> Return to homepage </button>
 {% endblock %}

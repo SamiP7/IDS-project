@@ -19,8 +19,8 @@ def index():
 
     
     room_types = sorted(df['room_type'].dropna().unique())
-
-    return render_template('index.html', room_types=room_types)
+    importance = [1,2,3,4,5]
+    return render_template('index.html', result_amounts=[5,10,15,20], room_types=room_types, crime_importances=importance, transportation_importances=importance, price_importances=importance, liveability_importances=importance)
 
 @app.route('/recommend', methods=['POST'])
 def recommend():
@@ -30,11 +30,14 @@ def recommend():
         amenities = amenities.strip().split(',')
         
         room_type = request.form.get('room_type')
+        result_amount = int(request.form.get('result_amount'))
+        max_price = int(request.form.get('max_price'))
+        
         user_prefs = { #client should be able to select these
-        'transportation': 5,  # importance scale: 1 (low) - 5 (high)
-        'crime': 3, 
-        'price': 4,
-        'liveability': 4
+        'transportation': int(request.form.get('transportation')),  # importance scale: 1 (low) - 5 (high)
+        'crime': int(request.form.get('crime')), 
+        'price': int(request.form.get('price')),
+        'liveability': int(request.form.get('liveability'))
         }
         
         df = pd.read_csv("listings.csv")
@@ -47,7 +50,7 @@ def recommend():
         df_filtered = find_top_listings_by_amenities_and_room_type(
             amenities, room_type, df, top_n=200, min_reviews=5
         )
-
+        df_filtered = df_filtered[df_filtered['price'] <= max_price]
         
         bus_stops_df = convert_bus_stops_to_latlon(bus_stops_df)
         df_with_transport = compute_bus_proximity_scores(df_filtered, bus_stops_df)
@@ -74,10 +77,10 @@ def recommend():
         weights['liveability'] * df_final['poi_liveability_score_scaled']
         )
 
-        top_5 = df_final.sort_values('weighted_score', ascending=False).head(5).to_dict(orient='records') #client should be able to see the amount of results, maybe at max 20
-        
-        print(top_5) #for debugging
-        return render_template('results.html', listings=top_5)
+        top_results = df_final.sort_values('weighted_score', ascending=False).head(result_amount).to_dict(orient='records') #client should be able to see the amount of results, maybe at max 20
+        print(user_prefs)
+        print(top_results) #for debugging
+        return render_template('results.html', listings=top_results)
 
     except Exception as e:
         return render_template('error.html', message=str(e))
