@@ -12,12 +12,13 @@ from sklearn.preprocessing import MinMaxScaler
 
 app = Flask(__name__)
 
+df = pd.read_csv("listings.csv.gz")
+bus_stops_df = pd.read_csv("bus_stops.csv")
+crime_df = pd.read_csv("BOROUGH.csv")
+pois_df = pd.read_csv("london_pois.csv")
+
 @app.route('/')
 def index():
-    
-    
-    df = pd.read_csv("listings.csv.gz")
-
     
     room_types = sorted(df['room_type'].dropna().unique())
     importance = [1,2,3,4,5]
@@ -41,11 +42,9 @@ def recommend():
         'liveability': int(request.form.get('liveability'))
         }
         
-        df = pd.read_csv("listings.csv.gz")
-        bus_stops_df = pd.read_csv("bus_stops.csv")
-        crime_df = pd.read_csv("BOROUGH.csv")
+        
         crime_df = crime_df[crime_df.BoroughName != 'London Heathrow and London City Airports']
-        pois_df = pd.read_csv("london_pois.csv")
+        
         
         convert_price_col_to_float(df)
         df_filtered = find_top_listings_by_amenities_and_room_type(
