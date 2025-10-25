@@ -79,12 +79,11 @@ def recommend():
         )
 
         top_results = df_final.sort_values('weighted_score', ascending=False).head(result_amount).to_dict(orient='records') #client should be able to see the amount of results, maybe at max 20
-        print(user_prefs)
-        print(top_results) #for debugging
+        
         return render_template('results.html', listings=top_results)
 
     except Exception as e:
         return render_template('error.html', message=str(e))
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()

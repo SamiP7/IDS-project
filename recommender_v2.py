@@ -1,11 +1,7 @@
-import pyproj
 from pyproj import Transformer
 import numpy as np
 import pandas as pd
 from typing import Optional
-import requests
-import time
-from collections import Counter
 import ast
 from scipy.spatial import cKDTree
 
@@ -377,70 +373,5 @@ def compute_poi_liveability_fast(listings: pd.DataFrame, pois: pd.DataFrame,
     listings["poi_liveability_score"] = poi_score_norm
     return listings   
 
-def main():
 
-    df = pd.read_csv("listings.csv", usecols=[
-        "id","listing_url","name","price","amenities","neighbourhood_cleansed",
-        "room_type","number_of_reviews","review_scores_rating","latitude","longitude"
-    ])
-    bus_stops_df = pd.read_csv("bus_stops.csv")
-    pois_df = pd.read_csv("london_pois.csv")  
-    user_prefs = {
-    'transportation': 5,  # importance scale: 1 (low) - 5 (high)
-    'crime': 3, 
-    'price': 4,
-    'liveability': 4
-}
-    
-    crime_df = pd.read_csv('BOROUGH.csv')
-    crime_rates_by_neighourhood = calc_crime_rates_by_neigbourhood(crime_df)
-    
-    wanted_amenities = ['wifi', 'washer'] # example will be replaced by user input
-    room_type = 'entire home/apt' # example will be replaced by user input
-    number_of_listings_shown = 5 # example will be replaced by user input
-
-    convert_price_col_to_float(df)
-    df_top_amenities = find_top_listings_by_amenities_and_room_type(wanted_amenities,room_type, df, top_n=200, min_reviews=5)
-  
-    bus_stops_df = convert_bus_stops_to_latlon(bus_stops_df)
-    df_with_transport_scores = compute_bus_proximity_scores_fast(
-        listings=df_top_amenities,
-        bus_stops=bus_stops_df,
-    )
-    df_final = compute_poi_liveability_fast(
-        df_with_transport_scores,
-        pois=pois_df,
-        radius_m=500,
-    )
-
-    df_final = df_final.merge(crime_rates_by_neighourhood, left_on='neighbourhood_cleansed', right_on='BoroughName')
-    print(df_final.columns)
-    # Normalize the weights
-    total = sum(user_prefs.values())
-    weights = {k: v / total for k, v in user_prefs.items()}
-
-
-    from sklearn.preprocessing import MinMaxScaler
-    scaler = MinMaxScaler()
-    features_to_scale = df_final[["poi_liveability_score","transport_score","price","crime_score"]] # "crime_score" will be added
-    scaled_features = scaler.fit_transform(features_to_scale)
-    df_final[["poi_liveability_score_scaled","transportation_score_scaled","price_scaled","crime_score_scaled"]] = scaled_features
-
-    df_final['weighted_score'] = (
-    weights['transportation'] * df_final['transportation_score_scaled'] +
-    weights['crime'] * (1 - df_final['crime_score_scaled']) +  # lower crime = better -- will be added
-    weights['price'] * (1 - df_final['price_scaled'])+
-    weights['liveability'] * df_final['poi_liveability_score_scaled']
-)
-
-    top_n = df_final.sort_values('weighted_score', ascending=False).head(number_of_listings_shown)
-
-    print(top_n[["listing_url","neighbourhood_cleansed","weighted_score","review_scores_rating"]]) 
                                                                                                                                             
-    
-
-if __name__ == "__main__":
-    main()
-
-
-
