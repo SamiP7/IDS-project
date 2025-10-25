@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from typing import Optional
 import ast
-from sklearn.neighbors import KDTree
+from scipy.spatial import cKDTree
 
 
 # parameters
@@ -96,9 +96,9 @@ def calc_crime_rates_by_neigbourhood(crime_rates_df):
     crime_combined = crime_rates_df.groupby(['BoroughName']).sum()
     crime_combined.sum(axis=1, numeric_only=True)
     normalized = (crime_combined['crime_score']-crime_combined['crime_score'].min())/(crime_combined['crime_score'].max()-crime_combined['crime_score'].min())
-    
+
     return pd.DataFrame(normalized)
-    
+
 def find_top_listings_by_amenities_and_room_type(required_amenities, room_type, df_source, top_n=100, min_reviews=5):
     """
     Filter listings that contain all required_amenities (case-insensitive, substring match),
@@ -111,7 +111,7 @@ def find_top_listings_by_amenities_and_room_type(required_amenities, room_type, 
     df_source = df_source[df_source["room_type"].str.strip().str.lower() == room_type.strip().lower()]
 
     # normalize input
-    
+
     if isinstance(required_amenities, str):
         required = [required_amenities]
     else:
@@ -158,10 +158,10 @@ def find_top_listings_by_amenities_and_room_type(required_amenities, room_type, 
 def convert_bus_stops_to_latlon(bus_stops):
     """
     Convert bus stop coordinates from Easting/Northing (OSGB36) to latitude/longitude (WGS84).
-    
+
     Parameters:
     bus_stops (pd.DataFrame): DataFrame containing bus stop data with 'Location_Easting' and 'Location_Northing' columns.
-    
+
     Returns:
     pd.DataFrame: DataFrame with added 'latitude' and 'longitude' columns.
     """
@@ -296,21 +296,21 @@ def compute_bus_proximity_scores(
     res["nearest_bus_stop_idx"] = nearest_idx
     res[f"n_bus_stops_within_{more_options_radius_m}m"] = counts_within
     res["transport_score"] = raw_scores
-    
+
     return res
 
 def compute_bus_proximity_scores_fast(listings, bus_stops, radius_m=1000, near_threshold_m=200):
     bus_coords = np.radians(bus_stops[["latitude", "longitude"]].to_numpy())
     listing_coords = np.radians(listings[["latitude", "longitude"]].to_numpy())
 
-    tree = KDTree(bus_coords, leaf_size=16)
-    
+    tree = cKDTree(bus_coords)
+
     dist, idx = tree.query(listing_coords, k=1)
     nearest_bus_stop_m = dist * 6371000  # convert rad to meters
 
         # count within radius
     counts_within = np.array([len(tree.query_ball_point(x, radius_m / 6371000)) for x in listing_coords])
-    
+
     listings["nearest_bus_stop_m"] = nearest_bus_stop_m
     listings[f"n_bus_stops_within_{radius_m}m"] = counts_within
     listings["transport_score"] = np.maximum(0, (radius_m - nearest_bus_stop_m) / radius_m + (counts_within / counts_within.max()))
@@ -324,13 +324,13 @@ def compute_poi_liveability_fast(listings: pd.DataFrame, pois: pd.DataFrame,
                                  poi_weights: dict = None) -> pd.DataFrame:
     """
     Compute a POI liveability score for each listing based on nearby POIs.
-    
+
     Parameters:
     - listings: DataFrame with 'latitude' and 'longitude'
     - pois: DataFrame with 'lat', 'lon', 'category'
     - radius_m: search radius in meters
     - poi_weights: dict of {category: weight}, default provided if None
-    
+
     Returns:
     - listings DataFrame with added 'poi_liveability_score' column
     """
@@ -345,16 +345,16 @@ def compute_poi_liveability_fast(listings: pd.DataFrame, pois: pd.DataFrame,
             "convenience": 0.6,
             "bakery": 0.7,
         }
-    
+
     # Convert coordinates to radians
     listing_coords = np.radians(listings[["latitude", "longitude"]].to_numpy())
     poi_coords = np.radians(pois[["lat", "lon"]].to_numpy())
     poi_categories = pois["category"].to_numpy()
-    
+
     earth_radius = 6371000  # meters
     n_listings = len(listings)
     poi_score_raw = np.zeros(n_listings)
-    
+
     # Compute contribution per category
     for cat, weight in poi_weights.items():
         idx_cat = np.where(poi_categories == cat)[0]
@@ -362,17 +362,18 @@ def compute_poi_liveability_fast(listings: pd.DataFrame, pois: pd.DataFrame,
             continue
         tree_cat = cKDTree(poi_coords[idx_cat])
         counts = tree_cat.query_ball_point(listing_coords, r=radius_m / earth_radius)
+        
         for i, pts in enumerate(counts):
             if len(pts) > 0:
                 dists = np.linalg.norm(listing_coords[i] - poi_coords[idx_cat][pts], axis=1)
                 contrib = np.sum(weight * (1 - dists / (radius_m / earth_radius)))
                 poi_score_raw[i] += contrib
-    
+
     # Normalize 0..1
     poi_score_norm = poi_score_raw / poi_score_raw.max() if poi_score_raw.max() > 0 else poi_score_raw
     listings = listings.copy()
     listings["poi_liveability_score"] = poi_score_norm
-    return listings   
+    return listings
 
 
-                                                                                                                                            
+
