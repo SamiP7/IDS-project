@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from typing import Optional
 import ast
-from scipy.spatial import cKDTree
+from sklearn.neighbors import KDTree
 
 
 # parameters
@@ -303,7 +303,8 @@ def compute_bus_proximity_scores_fast(listings, bus_stops, radius_m=1000, near_t
     bus_coords = np.radians(bus_stops[["latitude", "longitude"]].to_numpy())
     listing_coords = np.radians(listings[["latitude", "longitude"]].to_numpy())
 
-    tree = cKDTree(bus_coords)
+    tree = KDTree(bus_coords, leaf_size=16)
+    
     dist, idx = tree.query(listing_coords, k=1)
     nearest_bus_stop_m = dist * 6371000  # convert rad to meters
 
