@@ -15,10 +15,10 @@ app = Flask(__name__)
 @app.route('/')
 def index():
     
-    url = 'https://data.insideairbnb.com/united-kingdom/england/london/2025-06-10/data/listings.csv.gz'
     
-    df = pd.read_csv(url)
+    df = pd.read_csv("listings.csv.gz")
 
+    
     room_types = sorted(df['room_type'].dropna().unique())
     importance = [1,2,3,4,5]
     return render_template('index.html', result_amounts=[5,10,15,20], room_types=room_types, crime_importances=importance, transportation_importances=importance, price_importances=importance, liveability_importances=importance)
@@ -41,7 +41,7 @@ def recommend():
         'liveability': int(request.form.get('liveability'))
         }
         
-        df = pd.read_csv("listings.csv")
+        df = pd.read_csv("listings.csv.gz")
         bus_stops_df = pd.read_csv("bus_stops.csv")
         crime_df = pd.read_csv("BOROUGH.csv")
         crime_df = crime_df[crime_df.BoroughName != 'London Heathrow and London City Airports']
