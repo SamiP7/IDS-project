@@ -15,9 +15,10 @@ app = Flask(__name__)
 @app.route('/')
 def index():
     
-    df = pd.read_csv("listings.csv")
-
+    url = 'https://data.insideairbnb.com/united-kingdom/england/london/2025-06-10/data/listings.csv.gz'
     
+    df = pd.read_csv(url)
+
     room_types = sorted(df['room_type'].dropna().unique())
     importance = [1,2,3,4,5]
     return render_template('index.html', result_amounts=[5,10,15,20], room_types=room_types, crime_importances=importance, transportation_importances=importance, price_importances=importance, liveability_importances=importance)
